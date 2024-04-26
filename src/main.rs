@@ -291,9 +291,10 @@ impl Backend {
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, i: InitializeParams) -> Result<InitializeResult> {
-
         let root_dir = match i.root_uri {
-            Some(uri) => uri.to_file_path().or(Err(Error::new(ErrorCode::InvalidParams)))?,
+            Some(uri) => uri
+                .to_file_path()
+                .or(Err(Error::new(ErrorCode::InvalidParams)))?,
             None => std::env::current_dir().or(Err(Error::new(ErrorCode::InvalidParams)))?,
         };
 
@@ -612,7 +613,8 @@ impl LanguageServer for Backend {
         &self,
         params: WorkspaceSymbolParams,
     ) -> Result<Option<Vec<SymbolInformation>>> {
-        self.bind_vault(|vault| Ok(workspace_symbol(vault, &params)))
+        let settings = self.bind_settings(|settings| Ok(settings.clone())).await?;
+        self.bind_vault(|vault| Ok(workspace_symbol(&settings, vault, &params)))
             .await
     }
 

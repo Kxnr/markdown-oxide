@@ -1,3 +1,4 @@
+use chrono::{Duration, NaiveDate};
 use std::{iter, path::Path};
 
 use itertools::Itertools;
@@ -6,14 +7,18 @@ use tower_lsp::lsp_types::{
     SymbolKind, Url, WorkspaceSymbolParams,
 };
 
-use crate::vault::{MDHeading, Referenceable, Vault};
+use crate::{
+    config::Settings,
+    vault::{MDHeading, Referenceable, Vault},
+};
 
 pub fn workspace_symbol(
+    settings: &Settings,
     vault: &Vault,
     _params: &WorkspaceSymbolParams,
 ) -> Option<Vec<SymbolInformation>> {
     let referenceables = vault.select_referenceable_nodes(None);
-    let symbol_informations = referenceables
+    let mut symbol_informations = referenceables
         .into_iter()
         .flat_map(|referenceable| {
             let range = match referenceable {
@@ -48,6 +53,62 @@ pub fn workspace_symbol(
         })
         .collect_vec();
 
+    fn date_to_filename(settings: &Settings, date: NaiveDate) -> String {
+        date.format(settings.dailynote.as_str()).to_string()
+    }
+
+    fn relative_date_string(date: NaiveDate) -> Option<String> {
+        let today = chrono::Local::now().date_naive();
+
+        if today == date {
+            Some("today".to_string())
+        } else {
+            match (date - today).num_days() {
+                1 => Some("tomorrow".to_string()),
+                2..=7 => Some(format!("next {}", date.format("%A"))),
+                -1 => Some("yesterday".to_string()),
+                -7..=-1 => Some(format!("last {}", date.format("%A"))),
+                _ => None,
+            }
+        }
+    }
+
+    fn date_to_match_string(settings: &Settings, date: NaiveDate) -> Option<String> {
+        let refname = date_to_filename(settings, date);
+        format!("{}: {}", relative_date_string(date)?, refname).into()
+    }
+
+    let today = chrono::Local::now().date_naive();
+    let days = (-7..=7)
+        .flat_map(|i| Some(today + Duration::try_days(i)?))
+        // .flat_map(|date| relative_date_string(date))
+        // TODO: this filters out duplicates, which may not actually be desirable here?
+        // .filter(|date| !refnames.contains(&date.ref_name))
+        // TODO: collect Symbol information here
+        .filter_map(|date| {
+            Some(SymbolInformation {
+                name: date_to_match_string(settings, date)?,
+                kind: SymbolKind::FILE,
+                location: Location {
+                    uri: Url::from_file_path(date_to_filename(settings, date)).ok()?,
+                    range: tower_lsp::lsp_types::Range {
+                        start: tower_lsp::lsp_types::Position {
+                            line: 0,
+                            character: 0,
+                        },
+                        end: tower_lsp::lsp_types::Position {
+                            line: 0,
+                            character: 1,
+                        },
+                    },
+                },
+                container_name: None,
+                tags: None,
+                deprecated: None,
+            })
+        });
+
+    symbol_informations.extend(days);
     Some(symbol_informations)
 }
 
