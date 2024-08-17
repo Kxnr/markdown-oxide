@@ -6,7 +6,6 @@ use std::sync::Arc;
 use completion::get_completions;
 use config::{EmbeddedBlockTransclusionLength, Settings};
 use diagnostics::diagnostics;
-use do_notation::m;
 use itertools::Itertools;
 use rayon::prelude::*;
 use references::references;
@@ -616,19 +615,32 @@ impl LanguageServer for Backend {
 
                 Ok(None)
             }
-            ExecuteCommandParams { command, .. } if *command == *"jump" => {
-                let jump_to = params.arguments.first().and_then(|val| val.as_str());
+            ExecuteCommandParams { command, .. } if *command == *"note" => {
+                let notebook = params
+                    .arguments
+                    .first()
+                    .and_then(|val| val.as_str())
+                    .expect("Missing notebook parameter");
+                let date_str = &params.arguments[1..]
+                    .iter()
+                    .filter_map(|val| val.as_str())
+                    .join(" ");
                 let settings = self
                     .bind_settings(|settings| Ok(settings.to_owned()))
                     .await?;
                 let root_dir = self
                     .bind_vault(|vault| Ok(vault.root_dir().to_owned()))
                     .await?;
-                commands::jump(&self.client, &root_dir, &settings, jump_to).await
+                commands::note(
+                    &self.client,
+                    &root_dir,
+                    &settings,
+                    notebook,
+                    (!date_str.is_empty()).then_some(date_str),
+                )
+                .await
             }
-            ExecuteCommandParams { command, .. } => {
-                jump_to_specific(&command, &self.client, &root_dir, &settings).await
-            } // _ => Ok(None),
+            _ => Ok(None),
         }
     }
 
@@ -807,15 +819,6 @@ impl LanguageServer for Backend {
 
         hints
     }
-}
-
-async fn jump_to_specific(
-    day: &str,
-    client: &Client,
-    root_dir: &PathBuf,
-    settings: &Settings,
-) -> Result<Option<Value>> {
-    commands::jump(client, root_dir, settings, Some(day)).await
 }
 
 #[tokio::main]

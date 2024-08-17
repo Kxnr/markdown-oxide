@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use anyhow::anyhow;
-use config::{Config, File};
+use config::{Config, File, Map};
 use indexmap::IndexMap;
 use serde::Deserialize;
 use serde_json::Value;
@@ -9,11 +9,9 @@ use tower_lsp::lsp_types::ClientCapabilities;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Settings {
-    /// Format of daily notes
-    pub dailynote: String,
-    /// Diffrent pages path than default
+    pub notebooks: Map<String, Notebook>,
+    /// Different pages path than default
     pub new_file_folder_path: String,
-    pub daily_notes_folder: String,
     pub heading_completions: bool,
     pub title_headings: bool,
     pub unresolved_diagnostics: bool,
@@ -27,6 +25,12 @@ pub struct Settings {
     pub inlay_hints: bool,
     pub block_transclusion: bool,
     pub block_transclusion_length: EmbeddedBlockTransclusionLength,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct Notebook {
+    pub folder: String,
+    pub note_format: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -44,8 +48,7 @@ pub enum EmbeddedBlockTransclusionLength {
 
 impl Settings {
     pub fn new(root_dir: &Path, capabilities: &ClientCapabilities) -> anyhow::Result<Settings> {
-        let (obsidian_daily_note, obsidian_daily_notes_folder) =
-            obsidian_dailynote_details(root_dir);
+        let obsidian_dailynote = obsidian_dailynote_details(root_dir);
         let obsidian_new_file_folder_path = obsidian_new_file_folder_path(root_dir);
         let expanded = shellexpand::tilde("~/.config/moxide/settings");
         let settings = Config::builder()
@@ -64,12 +67,11 @@ impl Settings {
                 obsidian_new_file_folder_path.unwrap_or("".to_string()),
             )?
             .set_default(
-                "daily_notes_folder",
-                obsidian_daily_notes_folder.unwrap_or("".to_string()),
-            )?
-            .set_default(
-                "dailynote",
-                obsidian_daily_note.unwrap_or("%Y-%m-%d".to_string()),
+                "notebooks",
+                obsidian_dailynote.map_or_else(
+                    || Map::new(),
+                    |note| Map::from([("dailynote".to_owned(), note)]),
+                ),
             )?
             .set_default("heading_completions", true)?
             .set_default("unresolved_diagnostics", true)?
@@ -102,22 +104,27 @@ impl Settings {
     }
 }
 
-fn obsidian_dailynote_details(root_dir: &Path) -> (Option<String>, Option<String>) {
+fn obsidian_dailynote_details(root_dir: &Path) -> Option<HashMap<String, String>> {
     let daily_notes_config_file = root_dir.join(".obsidian").join("daily-notes.json");
     let file = std::fs::read(daily_notes_config_file).ok();
     let config: Option<HashMap<String, String>> =
         file.and_then(|file| serde_json::from_slice(&file).ok());
-    let daily_note = config.as_ref().and_then(|config| {
-        config
+
+    if let Some(config) = config {
+        let format = config
             .get("format")
-            .map(|format| convert_momentjs_to_chrono_format(format))
-    });
-
-    let daily_notes_folder = config
-        .as_ref()
-        .and_then(|config| config.get("folder").cloned());
-
-    (daily_note, daily_notes_folder)
+            .map(|format| convert_momentjs_to_chrono_format(format));
+        let folder = config.get("folder").cloned();
+        match (format, folder) {
+            (Some(format), Some(folder)) => Some(HashMap::from([
+                ("note_format".to_owned(), format),
+                ("folder".to_owned(), folder),
+            ])),
+            _ => None,
+        }
+    } else {
+        None
+    }
 }
 
 fn obsidian_new_file_folder_path(root_dir: &Path) -> Option<String> {

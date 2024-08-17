@@ -112,15 +112,7 @@ pub trait LinkCompleter<'a>: Completer<'a> {
             .map(|completion| completion.refname())
             .collect::<HashSet<_>>();
 
-        // Get daily notes for convienience
-        let today = chrono::Local::now().date_naive();
-        let days = (-7..=7)
-            .flat_map(|i| Some(today + Duration::try_days(i)?))
-            .flat_map(|date| MDDailyNote::from_date(date, self))
-            .filter(|date| !refnames.contains(&date.ref_name))
-            .map(LinkCompletion::DailyNote);
-
-        completions.into_iter().chain(days).collect::<Vec<_>>()
+        completions
     }
 }
 
@@ -542,7 +534,8 @@ pub enum LinkCompletion<'a> {
         infile_ref: Option<String>,
         referenceable: Referenceable<'a>,
     },
-    DailyNote(MDDailyNote<'a>),
+    // TODO
+    // Notebook
 }
 
 use LinkCompletion::*;
@@ -552,74 +545,72 @@ impl LinkCompletion<'_> {
         referenceable: Referenceable<'a>,
         completer: &impl LinkCompleter<'a>,
     ) -> Option<Vec<LinkCompletion<'a>>> {
-        if let Some(daily) = MDDailyNote::from_referenceable(referenceable.clone(), completer) {
-            Some(vec![DailyNote(daily)])
-        } else {
-            match referenceable {
-                Referenceable::File(_, mdfile) => {
-                    Some(
-                        once(File {
-                            mdfile,
-                            match_string: mdfile.file_name()?.to_string(),
-                            referenceable: referenceable.clone(),
-                        })
-                        .chain(mdfile.metadata.iter().flat_map(|it| it.aliases()).flat_map(
-                            |alias| {
-                                Some(Alias {
-                                    filename: mdfile.file_name()?,
-                                    match_string: alias,
-                                    referenceable: referenceable.clone(),
-                                })
-                            },
-                        ))
-                        .collect(),
-                    )
-                }
-                Referenceable::Heading(path, mdheading) => Some(
-                    once(Heading {
-                        heading: mdheading,
-                        match_string: format!(
-                            "{}#{}",
-                            path.file_stem()?.to_str()?,
-                            mdheading.heading_text
-                        ),
-                        referenceable,
-                    })
-                    .collect(),
-                ),
-                Referenceable::IndexedBlock(path, indexed) => Some(
-                    once(Block {
-                        match_string: format!("{}#^{}", path.file_stem()?.to_str()?, indexed.index),
-                        referenceable,
-                    })
-                    .collect(),
-                ),
-                Referenceable::UnresovledFile(_, file) => Some(
-                    once(Unresolved {
-                        match_string: file.clone(),
-                        infile_ref: None,
-                        referenceable,
-                    })
-                    .collect(),
-                ),
-                Referenceable::UnresolvedHeading(_, s1, s2) => Some(
-                    once(Unresolved {
-                        match_string: format!("{}#{}", s1, s2),
-                        infile_ref: Some(s2.clone()),
-                        referenceable,
-                    })
-                    .collect(),
-                ),
-                Referenceable::UnresovledIndexedBlock(_, s1, s2) => Some(
-                    once(Unresolved {
-                        match_string: format!("{}#^{}", s1, s2),
-                        infile_ref: Some(format!("^{}", s2)),
-                        referenceable,
-                    })
-                    .collect(),
-                ),
-                _ => None,
-            }
+        match referenceable {
+            Referenceable::File(_, mdfile) => Some(
+                once(File {
+                    mdfile,
+                    match_string: mdfile.file_name()?.to_string(),
+                    referenceable: referenceable.clone(),
+                })
+                .chain(
+                    mdfile
+                        .metadata
+                        .iter()
+                        .flat_map(|it| it.aliases())
+                        .flat_map(|alias| {
+                            Some(Alias {
+                                filename: mdfile.file_name()?,
+                                match_string: alias,
+                                referenceable: referenceable.clone(),
+                            })
+                        }),
+                )
+                .collect(),
+            ),
+            Referenceable::Heading(path, mdheading) => Some(
+                once(Heading {
+                    heading: mdheading,
+                    match_string: format!(
+                        "{}#{}",
+                        path.file_stem()?.to_str()?,
+                        mdheading.heading_text
+                    ),
+                    referenceable,
+                })
+                .collect(),
+            ),
+            Referenceable::IndexedBlock(path, indexed) => Some(
+                once(Block {
+                    match_string: format!("{}#^{}", path.file_stem()?.to_str()?, indexed.index),
+                    referenceable,
+                })
+                .collect(),
+            ),
+            Referenceable::UnresolvedFile(_, file) => Some(
+                once(Unresolved {
+                    match_string: file.clone(),
+                    infile_ref: None,
+                    referenceable,
+                })
+                .collect(),
+            ),
+            Referenceable::UnresolvedHeading(_, s1, s2) => Some(
+                once(Unresolved {
+                    match_string: format!("{}#{}", s1, s2),
+                    infile_ref: Some(s2.clone()),
+                    referenceable,
+                })
+                .collect(),
+            ),
+            Referenceable::UnresolvedIndexedBlock(_, s1, s2) => Some(
+                once(Unresolved {
+                    match_string: format!("{}#^{}", s1, s2),
+                    infile_ref: Some(format!("^{}", s2)),
+                    referenceable,
+                })
+                .collect(),
+            ),
+            _ => None,
         }
     }
 
@@ -636,7 +627,6 @@ impl LinkCompletion<'_> {
             | Self::Block { referenceable, .. }
             | Self::Unresolved { referenceable, .. }
             | Self::Alias { referenceable, .. } => referenceable.to_owned(),
-            Self::DailyNote(daily) => daily.referenceable(completer),
         };
 
         let label = self.match_string();
@@ -652,7 +642,6 @@ impl LinkCompletion<'_> {
                     ..
                 } => CompletionItemKind::KEYWORD,
                 Self::Alias { .. } => CompletionItemKind::ENUM,
-                Self::DailyNote { .. } => CompletionItemKind::EVENT,
             }),
             label_details: match self {
                 Self::Unresolved {
@@ -670,13 +659,9 @@ impl LinkCompletion<'_> {
                 File { .. } => None,
                 Heading { .. } => None,
                 Block { .. } => None,
-                DailyNote(_) => None,
             },
             text_edit: Some(text_edit),
             preselect: Some(match self {
-                Self::DailyNote(daily) => {
-                    daily.relative_name(completer) == Some(completer.entered_refname())
-                }
                 link_completion => link_completion.refname() == completer.entered_refname(),
             }),
             filter_text: Some(filter_text.to_string()),
@@ -689,7 +674,6 @@ impl LinkCompletion<'_> {
     /// Refname to be inserted into the document
     fn refname(&self) -> String {
         match self {
-            Self::DailyNote(MDDailyNote { ref_name, .. }) => ref_name.to_string(),
             File { match_string, .. }
             | Heading { match_string, .. }
             | Block { match_string, .. }
@@ -719,7 +703,6 @@ impl<'a> Completable<'a, MarkdownLinkCompleter<'a>> for LinkCompletion<'a> {
                 match_string: _, ..
             } => None,
             Self::Alias { match_string, .. } => Some(match_string.to_string()),
-            Self::DailyNote(daily) => daily.relative_name(markdown_link_completer),
             Self::Heading {
                 heading,
                 match_string: _,
@@ -776,7 +759,6 @@ impl<'a> Completable<'a, WikiLinkCompleter<'a>> for LinkCompletion<'a> {
             Heading { .. } => None,
             Block { .. } => None,
             Unresolved { .. } => None,
-            DailyNote(_) => None,
         };
 
         let text_edit = completer.completion_text_edit(wikilink_display_text.as_deref(), &refname);
@@ -805,108 +787,8 @@ impl Matchable for LinkCompletion<'_> {
                 ..
             }
             | Block { match_string, .. }
-            | Unresolved { match_string, .. }
-            | DailyNote(MDDailyNote { match_string, .. }) => match_string,
+            | Unresolved { match_string, .. } => match_string,
             Alias { match_string, .. } => match_string,
         }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct MDDailyNote<'a> {
-    match_string: String,
-    ref_name: String,
-    real_referenceaable: Option<Referenceable<'a>>,
-}
-
-impl MDDailyNote<'_> {
-    pub fn relative_name<'a>(&self, completer: &impl LinkCompleter<'a>) -> Option<String> {
-        let self_date = self.get_self_date(completer)?;
-
-        Self::relative_date_string(self_date)
-    }
-
-    pub fn get_self_date<'a>(&self, completer: &impl LinkCompleter<'a>) -> Option<NaiveDate> {
-        let dailynote_format = &completer.settings().dailynote;
-
-        chrono::NaiveDate::parse_from_str(&self.ref_name, dailynote_format).ok()
-    }
-
-    fn relative_date_string(date: NaiveDate) -> Option<String> {
-        let today = chrono::Local::now().date_naive();
-
-        if today == date {
-            Some("today".to_string())
-        } else {
-            match (date - today).num_days() {
-                1 => Some("tomorrow".to_string()),
-                2..=7 => Some(format!("next {}", date.format("%A"))),
-                -1 => Some("yesterday".to_string()),
-                -7..=-1 => Some(format!("last {}", date.format("%A"))),
-                _ => None,
-            }
-        }
-    }
-
-    /// The refname used for fuzzy matching a completion - not the actual inserted text
-    fn from_referenceable<'a>(
-        referenceable: Referenceable<'a>,
-        completer: &impl LinkCompleter<'a>,
-    ) -> Option<MDDailyNote<'a>> {
-        let Some((filerefname, filter_refname)) = (match referenceable {
-            Referenceable::File(&ref path, _) | Referenceable::UnresovledFile(ref path, _) => {
-                let filename = path.file_name();
-                let dailynote_format = &completer.settings().dailynote;
-                let (date, filename) = filename.and_then(|filename| {
-                    let filename = filename.to_str()?;
-                    let filename = filename.replace(".md", "");
-                    Some((
-                        chrono::NaiveDate::parse_from_str(&filename, dailynote_format).ok(),
-                        filename,
-                    ))
-                })?;
-
-                date.and_then(Self::relative_date_string)
-                    .map(|thing| (filename.clone(), format!("{}: {}", thing, filename)))
-            }
-            _ => None,
-        }) else {
-            return None;
-        };
-
-        Some(MDDailyNote {
-            match_string: filter_refname,
-            ref_name: filerefname,
-            real_referenceaable: Some(referenceable),
-        })
-    }
-
-    fn from_date<'a>(
-        date: NaiveDate,
-        completer: &impl LinkCompleter<'a>,
-    ) -> Option<MDDailyNote<'a>> {
-        let filerefname = date.format(&completer.settings().dailynote).to_string();
-        let match_string = format!("{}: {}", Self::relative_date_string(date)?, filerefname);
-
-        // path on unresolved file is useless
-        Some(MDDailyNote {
-            match_string,
-            ref_name: filerefname.clone(),
-            real_referenceaable: None,
-        })
-    }
-
-    /// mock referenceable for kicks
-    fn referenceable<'a, 'b>(&'b self, completer: &impl LinkCompleter<'a>) -> Referenceable<'b> {
-        if let Some(referencaable) = &self.real_referenceaable {
-            return referencaable.clone();
-        }
-
-        let mut path = completer.vault().root_dir().to_path_buf();
-        path.push(format!("{}.md", self.ref_name));
-
-        let unresolved_file = Referenceable::UnresovledFile(path.to_path_buf(), &self.ref_name);
-
-        unresolved_file
     }
 }

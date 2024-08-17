@@ -20,25 +20,26 @@ fn datetime_to_file(
     Url::from_file_path(path.with_extension("md")).ok()
 }
 
-pub async fn jump(
+pub async fn note(
     client: &tower_lsp::Client,
     root_dir: &Path,
     settings: &Settings,
-    jump_to: Option<&str>,
+    notebook: &str,
+    date_str: Option<&str>,
 ) -> Result<Option<Value>> {
-    // if jump_to is None, use the current time.
+    // if date_str is None, use the current time.
 
-    let daily_note_format = &settings.dailynote;
-    let daily_note_path = root_dir.join(&settings.daily_notes_folder);
-    let note_file = match jump_to {
-        Some(jmp_str) => parse(jmp_str)
+    let notebook = settings
+        .notebooks
+        .get(notebook)
+        .ok_or(Error::invalid_params("Notebook does not exist"))?;
+    let note_format = &notebook.note_format;
+    let note_path = root_dir.join(&notebook.folder);
+    let note_file = match date_str {
+        Some(date_str) => parse(date_str)
             .ok()
-            .and_then(|dt| datetime_to_file(dt, &daily_note_format, &daily_note_path)),
-        None => datetime_to_file(
-            Local::now().naive_local(),
-            &daily_note_format,
-            &daily_note_path,
-        ),
+            .and_then(|dt| datetime_to_file(dt, &note_format, &note_path)),
+        None => datetime_to_file(Local::now().naive_local(), &note_format, &note_path),
     };
 
     if let Some(uri) = note_file {
@@ -64,12 +65,12 @@ pub async fn jump(
         client
             .log_message(
                 MessageType::ERROR,
-                format!("could not parse {jump_to:?}: {:?}", jump_to.map(parse)),
+                format!("could not parse {date_str:?}: {:?}", date_str.map(parse)),
             )
             .await;
         Err(Error::invalid_params(format!(
-            "Could not parse journal format ({jump_to:?}) as a valid uri: {:?}.",
-            jump_to.map(parse)
+            "Could not parse journal format ({note_format:?}) as a valid uri: {:?}.",
+            note_format
         )))
     }
 }

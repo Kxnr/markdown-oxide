@@ -25,8 +25,8 @@ pub fn path_unresolved_references<'a>(
             matched_option.is_some_and(|matched| {
                 matches!(
                     matched,
-                    Referenceable::UnresovledIndexedBlock(..)
-                        | Referenceable::UnresovledFile(..)
+                    Referenceable::UnresolvedIndexedBlock(..)
+                        | Referenceable::UnresolvedFile(..)
                         | Referenceable::UnresolvedHeading(..)
                 )
             })

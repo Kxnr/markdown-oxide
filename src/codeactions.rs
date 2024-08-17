@@ -9,7 +9,7 @@ use tower_lsp::lsp_types::{
 
 use crate::{
     config::Settings,
-    daily::filename_is_formatted,
+    daily::match_notebook,
     diagnostics::path_unresolved_references,
     vault::{Reference, Vault},
 };
@@ -42,8 +42,8 @@ pub fn code_actions(
                         let filename = &reference.data().reference_text;
 
                         let mut new_path_buf = vault.root_dir().clone();
-                        if filename_is_formatted(settings, filename) {
-                            new_path_buf.push(&settings.daily_notes_folder);
+                        if let Some(notebook) = match_notebook(settings, filename) {
+                            new_path_buf.push(&notebook.folder);
                         } else {
                             new_path_buf.push(&settings.new_file_folder_path);
                         }
@@ -73,8 +73,8 @@ pub fn code_actions(
                     Reference::WikiHeadingLink(_data, link_path, heading) => {
 
                         let mut new_path_buf = vault.root_dir().clone();
-                        if filename_is_formatted(settings, link_path) {
-                            new_path_buf.push(&settings.daily_notes_folder);
+                        if let Some(notebook) = match_notebook(settings, link_path) {
+                            new_path_buf.push(&notebook.folder);
                         } else {
                             new_path_buf.push(&settings.new_file_folder_path);
                         }
