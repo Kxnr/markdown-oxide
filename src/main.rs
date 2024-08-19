@@ -314,6 +314,13 @@ impl LanguageServer for Backend {
             }
         };
 
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!("{:?}", read_settings.notebooks.keys()),
+            )
+            .await;
+
         let Ok(vault) = Vault::construct_vault(&read_settings, &root_dir) else {
             return Err(Error::new(ErrorCode::ServerError(0)));
         };
@@ -376,27 +383,7 @@ impl LanguageServer for Backend {
                     resolve_provider: None,
                 }),
                 execute_command_provider: Some(ExecuteCommandOptions {
-                    commands: vec![
-                        "apply_edits".into(),
-                        "jump".into(),
-                        "tomorrow".into(),
-                        "today".into(),
-                        "yesterday".into(),
-                        "last friday".into(),
-                        "last saturday".into(),
-                        "last sunday".into(),
-                        "last monday".into(),
-                        "last tuesday".into(),
-                        "last wednesday".into(),
-                        "last thursday".into(),
-                        "next friday".into(),
-                        "next saturday".into(),
-                        "next sunday".into(),
-                        "next monday".into(),
-                        "next tuesday".into(),
-                        "next wednesday".into(),
-                        "next thursday".into(),
-                    ],
+                    commands: vec!["apply_edits".into(), "notebook".into()],
                     ..Default::default()
                 }),
                 semantic_tokens_provider: Some(
@@ -615,7 +602,7 @@ impl LanguageServer for Backend {
 
                 Ok(None)
             }
-            ExecuteCommandParams { command, .. } if *command == *"note" => {
+            ExecuteCommandParams { command, .. } if *command == *"notebook" => {
                 let notebook = params
                     .arguments
                     .first()
